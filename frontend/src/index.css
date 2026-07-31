@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0b1424;
+  --sidebar: #111b2f;
+  --card: #18243a;
+  --primary: #38bdf8;
+  --on-primary: #0b1424;
+  --accent: #22d3ee;
+  --on-accent: #0b1424;
+  --border: #24334d;
+  --text: #f3f8fc;
+  --text-muted: #94a3b8;
+  --navbar: #111b2f;
+  --input-bg: #18243a;
+  --input-text: #f3f8fc;
+  --hover: #24334d;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keep typed text visible in all inputs */
+input:not([type="file"]):not([type="checkbox"]):not([type="radio"]),
+textarea,
+select {
+  color: var(--input-text) !important;
+  background-color: var(--input-bg) !important;
+  caret-color: var(--primary);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted) !important;
+  opacity: 0.85;
+}

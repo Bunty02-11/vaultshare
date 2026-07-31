@@ -1,0 +1,94 @@
+# ==========================
+# Dependencies
+# ==========================
+node_modules/
+
+# ==========================
+# Environment Variables
+# ==========================
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# ==========================
+# Logs
+# ==========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==========================
+# Build Files
+# ==========================
+dist/
+build/
+out/
+.next/
+coverage/
+
+# ==========================
+# Cache
+# ==========================
+.cache/
+.parcel-cache/
+.vite/
+.eslintcache
+
+# ==========================
+# Uploads
+# ==========================
+uploads/
+temp/
+tmp/
+
+# ==========================
+# OS Files
+# ==========================
+.DS_Store
+Thumbs.db
+
+# ==========================
+# IDE
+# ==========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ==========================
+# Package Manager
+# ==========================
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Uncomment the one you use and remove the others if needed.
+
+# ==========================
+# Firebase
+# ==========================
+.firebase/
+
+# ==========================
+# MongoDB
+# ==========================
+*.mongodb
+
+# ==========================
+# SSL Certificates
+# ==========================
+*.pem
+*.key
+*.crt
+
+# ==========================
+# Misc
+# ==========================
+*.pid
+*.seed
+*.pid.lock
