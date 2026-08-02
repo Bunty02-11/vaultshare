@@ -26,26 +26,74 @@ function Avatar({ name, online, size = "lg" }) {
 export default function Friends() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { onlineUsers } = useSocket();
+  const { socket, onlineUsers } = useSocket();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [data, setData] = useState({ friends: [], received: [], sent: [] });
   const [showAdd, setShowAdd] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const load = async () => {
-    const { data } = await api.get("/friends");
-    setData(data);
+    const { data: next } = await api.get("/friends");
+    setData(next);
+    setLoading(false);
   };
 
   const runSearch = async (q) => {
     if (!q.trim()) return setResults([]);
-    const { data } = await api.get(`/friends/search?q=${encodeURIComponent(q)}`);
-    setResults(data);
+    const { data: found } = await api.get(`/friends/search?q=${encodeURIComponent(q)}`);
+    setResults(found);
   };
 
   useEffect(() => {
     load();
   }, []);
+
+  // Live friend request / accept / unfriend updates (no reload needed)
+  useEffect(() => {
+    if (!socket) return;
+
+    const onRequest = ({ from }) => {
+      if (!from?._id) return;
+      setData((prev) => {
+        if (prev.received.some((u) => String(u._id) === String(from._id))) return prev;
+        return { ...prev, received: [from, ...prev.received] };
+      });
+    };
+
+    const onRespond = ({ action, by }) => {
+      if (!by?._id) return;
+      setData((prev) => {
+        const next = {
+          ...prev,
+          sent: prev.sent.filter((u) => String(u._id) !== String(by._id)),
+        };
+        if (action === "accept") {
+          const alreadyFriend = prev.friends.some((u) => String(u._id) === String(by._id));
+          if (!alreadyFriend) next.friends = [...prev.friends, by];
+        }
+        return next;
+      });
+    };
+
+    const onRemoved = ({ by }) => {
+      if (!by?._id) return;
+      setData((prev) => ({
+        ...prev,
+        friends: prev.friends.filter((u) => String(u._id) !== String(by._id)),
+      }));
+    };
+
+    socket.on("friend:request", onRequest);
+    socket.on("friend:respond", onRespond);
+    socket.on("friend:removed", onRemoved);
+    return () => {
+      socket.off("friend:request", onRequest);
+      socket.off("friend:respond", onRespond);
+      socket.off("friend:removed", onRemoved);
+    };
+  }, [socket]);
 
   useEffect(() => {
     const q = searchParams.get("q") || "";
@@ -63,20 +111,67 @@ export default function Friends() {
   };
 
   const sendRequest = async (id) => {
-    await api.post(`/friends/request/${id}`);
-    setResults(results.filter((r) => r._id !== id));
-    load();
+    if (busyId) return;
+    setBusyId(id);
+    setResults((prev) => prev.filter((r) => r._id !== id));
+    try {
+      await api.post(`/friends/request/${id}`);
+      load();
+    } catch {
+      await load();
+      runSearch(query);
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const respond = async (id, action) => {
-    await api.post(`/friends/respond/${id}`, { action });
-    load();
+    if (busyId) return;
+    setBusyId(id);
+
+    const requester = data.received.find((u) => String(u._id) === String(id));
+    // Optimistic UI — remove request instantly so a second click can't fire
+    setData((prev) => ({
+      ...prev,
+      received: prev.received.filter((u) => String(u._id) !== String(id)),
+      friends:
+        action === "accept" && requester
+          ? [...prev.friends, requester]
+          : prev.friends,
+    }));
+
+    try {
+      await api.post(`/friends/respond/${id}`, { action });
+      window.dispatchEvent(
+        new CustomEvent("friend:local-update", { detail: { id, action } })
+      );
+    } catch {
+      await load();
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const unfriend = async (id, name) => {
+    if (busyId) return;
     if (!window.confirm(`Unfriend ${name}?`)) return;
-    await api.delete(`/friends/${id}`);
-    load();
+    setBusyId(id);
+    const removed = data.friends.find((u) => String(u._id) === String(id));
+    setData((prev) => ({
+      ...prev,
+      friends: prev.friends.filter((u) => String(u._id) !== String(id)),
+    }));
+    try {
+      await api.delete(`/friends/${id}`);
+    } catch {
+      if (removed) {
+        setData((prev) => ({ ...prev, friends: [...prev.friends, removed] }));
+      } else {
+        await load();
+      }
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const isOnline = (id) =>
@@ -94,7 +189,6 @@ export default function Friends() {
       <p className="mt-0.5 max-w-full truncate text-xs text-app-muted">
         #{u.uniqueId || "----"}
       </p>
-      {/* <p className="mt-1 text-xs text-app-muted">{online ? "Online" : "Offline"}</p> */}
 
       <div className="mt-4 flex items-center gap-2">
         <button
@@ -114,8 +208,9 @@ export default function Friends() {
         </button>
         <button
           type="button"
+          disabled={busyId === u._id}
           onClick={() => unfriend(u._id, u.name)}
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-app-border bg-app-hover text-app-muted transition hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-500"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-app-border bg-app-hover text-app-muted transition hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
           aria-label={`Unfriend ${u.name}`}
           title="Unfriend"
         >
@@ -133,7 +228,6 @@ export default function Friends() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
-      {/* Big search */}
       <form onSubmit={search} className="mb-8 flex items-center gap-3">
         <div className="relative min-w-0 flex-1">
           <input
@@ -173,7 +267,10 @@ export default function Friends() {
         </button>
       </form>
 
-      {/* Search / add results */}
+      {loading && (
+        <p className="mb-6 text-sm text-app-muted">Loading friends…</p>
+      )}
+
       {showAdd && results.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-app-muted">
@@ -196,10 +293,11 @@ export default function Friends() {
                 </div>
                 <button
                   type="button"
+                  disabled={busyId === u._id}
                   onClick={() => sendRequest(u._id)}
-                  className="shrink-0 rounded-xl bg-app-primary px-3 py-1.5 text-sm font-medium text-app-on-primary hover:opacity-90"
+                  className="shrink-0 rounded-xl bg-app-primary px-3 py-1.5 text-sm font-medium text-app-on-primary hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Add Friend
+                  {busyId === u._id ? "Sending…" : "Add Friend"}
                 </button>
               </div>
             ))}
@@ -211,48 +309,51 @@ export default function Friends() {
         <p className="mb-8 text-center text-sm text-app-muted">No users found</p>
       )}
 
-      {/* Friend requests */}
       {data.received.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-app-muted">
             Friend requests — {data.received.length}
           </h2>
           <div className="space-y-2">
-            {data.received.map((u) => (
-              <div
-                key={u._id}
-                className="flex items-center justify-between rounded-2xl border border-app-border bg-app-card px-4 py-3"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <Avatar name={u.name} size="sm" />
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-app-text">{u.name}</p>
-                    <p className="text-xs text-app-muted">#{u.uniqueId}</p>
+            {data.received.map((u) => {
+              const busy = busyId === u._id;
+              return (
+                <div
+                  key={u._id}
+                  className="flex items-center justify-between rounded-2xl border border-app-border bg-app-card px-4 py-3"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Avatar name={u.name} size="sm" />
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-app-text">{u.name}</p>
+                      <p className="text-xs text-app-muted">#{u.uniqueId}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={!!busyId}
+                      onClick={() => respond(u._id, "accept")}
+                      className="rounded-xl bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {busy ? "Accepting…" : "Accept"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!!busyId}
+                      onClick={() => respond(u._id, "reject")}
+                      className="rounded-xl border border-app-border px-3 py-1.5 text-sm font-medium text-red-500 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {busy ? "…" : "Reject"}
+                    </button>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => respond(u._id, "accept")}
-                    className="rounded-xl bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500"
-                  >
-                    Accept
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => respond(u._id, "reject")}
-                    className="rounded-xl border border-app-border px-3 py-1.5 text-sm font-medium text-red-500 hover:bg-red-500/10"
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
 
-      {/* Online */}
       <section className="mb-10">
         <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-app-muted">
           <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
@@ -271,7 +372,6 @@ export default function Friends() {
         )}
       </section>
 
-      {/* Offline */}
       <section>
         <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-app-muted">
           <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">

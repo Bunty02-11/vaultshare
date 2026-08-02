@@ -35,6 +35,30 @@ export default function Chat() {
   }, []);
 
   useEffect(() => {
+    if (!socket) return;
+
+    const onRespond = ({ action, by }) => {
+      if (action !== "accept" || !by?._id) return;
+      setFriends((prev) => {
+        if (prev.some((f) => String(f._id) === String(by._id))) return prev;
+        return [...prev, by];
+      });
+    };
+
+    const onRemoved = ({ by }) => {
+      if (!by?._id) return;
+      setFriends((prev) => prev.filter((f) => String(f._id) !== String(by._id)));
+    };
+
+    socket.on("friend:respond", onRespond);
+    socket.on("friend:removed", onRemoved);
+    return () => {
+      socket.off("friend:respond", onRespond);
+      socket.off("friend:removed", onRemoved);
+    };
+  }, [socket]);
+
+  useEffect(() => {
     if (!friendId) {
       setConversation(null);
       setMessages([]);
@@ -48,7 +72,8 @@ export default function Chat() {
       if (cancelled) return;
       setConversation(data);
       setActiveConversation(data._id);
-      await markConversationRead(data._id, friendId);
+      // Don't block message load on the read receipt
+      markConversationRead(data._id, friendId);
       const { data: msgs } = await api.get(`/messages/${data._id}`);
       if (!cancelled) setMessages(msgs);
     };
