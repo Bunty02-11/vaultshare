@@ -17,7 +17,23 @@ const startServer = async () => {
   await connectDB();
 
   const app = express();
-  app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
+  const allowedOrigins = [
+    process.env.CLIENT_URL
+  ].filter(Boolean);
+
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        // Allow non-browser clients (no Origin) and configured frontend origins
+        if (!origin || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error(`CORS blocked for origin: ${origin}`));
+        }
+      },
+      credentials: true,
+    })
+  );
   app.use(express.json());
 
   // Public URL shortener → CloudFront

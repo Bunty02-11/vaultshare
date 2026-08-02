@@ -9,7 +9,14 @@ const onlineUsers = new Map();
 
 export const initSocket = (httpServer) => {
   const io = new Server(httpServer, {
-    cors: { origin: process.env.CLIENT_URL, credentials: true },
+    cors: {
+      origin: [
+        process.env.CLIENT_URL,
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+      ].filter(Boolean),
+      credentials: true,
+    },
   });
 
   io.use((socket, next) => {
