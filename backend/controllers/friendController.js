@@ -1,4 +1,13 @@
 import User from "../models/User.js";
+import { getIO } from "../socket.js";
+
+const publicUser = (user) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  avatar: user.avatar,
+  uniqueId: user.uniqueId,
+});
 
 export const searchUsers = async (req, res) => {
   const { q } = req.query;
@@ -35,8 +44,14 @@ export const sendFriendRequest = async (req, res) => {
 
   me.friendRequestsSent.push(targetId);
   target.friendRequestsReceived.push(req.userId);
-  await me.save();
-  await target.save();
+  await Promise.all([me.save(), target.save()]);
+
+  const io = getIO();
+  if (io) {
+    io.to(`user:${targetId}`).emit("friend:request", {
+      from: publicUser(me),
+    });
+  }
 
   res.json({ message: "Friend request sent" });
 };
@@ -45,20 +60,47 @@ export const respondFriendRequest = async (req, res) => {
   const { requesterId } = req.params;
   const { action } = req.body; // "accept" | "reject"
 
+  if (!["accept", "reject"].includes(action)) {
+    return res.status(400).json({ message: "action must be accept or reject" });
+  }
+
   const me = await User.findById(req.userId);
   const requester = await User.findById(requesterId);
   if (!requester) return res.status(404).json({ message: "User not found" });
 
-  me.friendRequestsReceived = me.friendRequestsReceived.filter((id) => id.toString() !== requesterId);
-  requester.friendRequestsSent = requester.friendRequestsSent.filter((id) => id.toString() !== req.userId);
-
-  if (action === "accept") {
-    me.friends.push(requesterId);
-    requester.friends.push(req.userId);
+  const hadRequest = me.friendRequestsReceived.some(
+    (id) => id.toString() === requesterId
+  );
+  if (!hadRequest) {
+    return res.status(400).json({ message: "No pending request from this user" });
   }
 
-  await me.save();
-  await requester.save();
+  me.friendRequestsReceived = me.friendRequestsReceived.filter(
+    (id) => id.toString() !== requesterId
+  );
+  requester.friendRequestsSent = requester.friendRequestsSent.filter(
+    (id) => id.toString() !== req.userId
+  );
+
+  if (action === "accept") {
+    if (!me.friends.some((id) => id.toString() === requesterId)) {
+      me.friends.push(requesterId);
+    }
+    if (!requester.friends.some((id) => id.toString() === req.userId)) {
+      requester.friends.push(req.userId);
+    }
+  }
+
+  await Promise.all([me.save(), requester.save()]);
+
+  const io = getIO();
+  if (io) {
+    io.to(`user:${requesterId}`).emit("friend:respond", {
+      action,
+      by: publicUser(me),
+    });
+  }
+
   res.json({ message: `Friend request ${action}ed` });
 };
 
@@ -89,8 +131,14 @@ export const unfriend = async (req, res) => {
   friend.friendRequestsSent = friend.friendRequestsSent.filter((id) => id.toString() !== req.userId);
   friend.friendRequestsReceived = friend.friendRequestsReceived.filter((id) => id.toString() !== req.userId);
 
-  await me.save();
-  await friend.save();
+  await Promise.all([me.save(), friend.save()]);
+
+  const io = getIO();
+  if (io) {
+    io.to(`user:${friendId}`).emit("friend:removed", {
+      by: publicUser(me),
+    });
+  }
 
   res.json({ message: "Unfriended successfully" });
 };

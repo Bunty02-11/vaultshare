@@ -521,8 +521,7 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    loadAssets();
-    loadFriends();
+    Promise.all([loadAssets(), loadFriends()]).catch(() => {});
   }, []);
 
   const handleUpload = async (e) => {
@@ -542,7 +541,14 @@ export default function Dashboard() {
         headers: { "Content-Type": file.type || "application/octet-stream" },
         body: file,
       });
-      if (!putRes.ok) throw new Error("S3 upload failed");
+      if (!putRes.ok) {
+        const s3Error = await putRes.text().catch(() => "");
+        throw new Error(
+          s3Error
+            ? `S3 upload failed (${putRes.status}): ${s3Error.slice(0, 200)}`
+            : `S3 upload failed (${putRes.status})`
+        );
+      }
 
       await api.post("/assets/confirm", {
         key: presign.key,

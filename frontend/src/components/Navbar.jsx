@@ -3,10 +3,12 @@ import { Link, useNavigate } from "react-router-dom";
 import api from "../api/axios.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotifications } from "../context/NotificationContext.jsx";
+import { useSocket } from "../context/SocketContext.jsx";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
   const { messageNotifs, markConversationRead } = useNotifications();
+  const { socket } = useSocket();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -26,9 +28,33 @@ export default function Navbar() {
 
   useEffect(() => {
     loadRequests();
-    const id = setInterval(loadRequests, 30000);
-    return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const onRequest = ({ from }) => {
+      if (!from?._id) return;
+      setRequests((prev) => {
+        if (prev.some((u) => String(u._id) === String(from._id))) return prev;
+        return [from, ...prev];
+      });
+    };
+
+    const onLocalUpdate = (e) => {
+      const id = e.detail?.id;
+      if (!id) return;
+      setRequests((prev) => prev.filter((u) => String(u._id) !== String(id)));
+    };
+
+    socket.on("friend:request", onRequest);
+    window.addEventListener("friend:local-update", onLocalUpdate);
+
+    return () => {
+      socket.off("friend:request", onRequest);
+      window.removeEventListener("friend:local-update", onLocalUpdate);
+    };
+  }, [socket]);
 
   useEffect(() => {
     const onClick = (e) => {
